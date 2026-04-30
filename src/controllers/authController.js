@@ -2,7 +2,7 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const Otp = require("../models/Otp");
 const PendingRegistration = require("../models/PendingRegistration");
-const { createOrReplaceOtp, verifyOtpCode } = require("../utils/otp");
+const { createOrReplaceOtp, verifyOtpCode, sendOTPEmail } = require("../utils/otp");
 const { generateToken } = require("../utils/token");
 
 const register = async (req, res) => {
