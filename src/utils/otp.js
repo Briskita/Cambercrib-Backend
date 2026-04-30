@@ -1,4 +1,5 @@
 const Otp = require("../models/Otp");
+const { Resend } = require("resend");
 
 const OTP_VALID_MINUTES = 10;
 
