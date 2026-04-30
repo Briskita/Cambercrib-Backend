@@ -67,6 +67,101 @@ const swaggerDocument = {
           smsNotification: { type: "boolean" },
         },
       },
+      PropertyContacts: {
+        type: "object",
+        properties: {
+          phone: { type: "string" },
+          whatsapp: { type: "string" },
+          email: { type: "string", format: "email" },
+        },
+      },
+      PropertyCreateRequest: {
+        type: "object",
+        required: ["title", "description", "location"],
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          location: { type: "string" },
+          initialDepositAllowed: { type: "boolean" },
+          amenities: {
+            type: "array",
+            items: { type: "string" },
+            description: "For multipart/form-data, send as JSON string",
+          },
+          contacts: {
+            $ref: "#/components/schemas/PropertyContacts",
+            description: "For multipart/form-data, send as JSON string",
+          },
+          soldPlots: { type: "number", description: "Auto-computed from unit statuses" },
+          reservedPlots: { type: "number", description: "Auto-computed from unit statuses" },
+          availablePlots: { type: "number", description: "Auto-computed from unit statuses" },
+          numberOfInvestors: { type: "number" },
+          completionRate: { type: "number" },
+          totalInvestment: { type: "number" },
+          images: {
+            type: "array",
+            items: { type: "string", format: "binary" },
+          },
+          documents: {
+            type: "array",
+            items: { type: "string", format: "binary" },
+          },
+          propertyVideoTour: { type: "string", format: "binary" },
+          propertyLayoutImage: { type: "string", format: "binary" },
+        },
+      },
+      PropertyUpdateRequest: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          location: { type: "string" },
+          initialDepositAllowed: { type: "boolean" },
+          amenities: { type: "array", items: { type: "string" } },
+          contacts: { $ref: "#/components/schemas/PropertyContacts" },
+          numberOfInvestors: { type: "number" },
+          completionRate: { type: "number" },
+          totalInvestment: { type: "number" },
+        },
+      },
+      PropertyUnitItemRequest: {
+        type: "object",
+        required: ["name", "price", "landmass"],
+        properties: {
+          name: { type: "string" },
+          price: { type: "number" },
+          landmass: { type: "number" },
+          status: { type: "string", enum: ["available", "reserved", "sold"] },
+          investButtonLabel: { type: "string" },
+        },
+      },
+      PropertyUnitsCreateRequest: {
+        type: "object",
+        required: ["units"],
+        properties: {
+          units: {
+            type: "array",
+            items: { $ref: "#/components/schemas/PropertyUnitItemRequest" },
+          },
+        },
+      },
+      PropertyUnitUpdateRequest: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          price: { type: "number" },
+          landmass: { type: "number" },
+          status: { type: "string", enum: ["available", "reserved", "sold"] },
+          investButtonLabel: { type: "string" },
+        },
+      },
+      PropertyUnitStatusUpdateRequest: {
+        type: "object",
+        required: ["status"],
+        properties: {
+          status: { type: "string", enum: ["available", "reserved", "sold"] },
+        },
+      },
     },
   },
   paths: {
@@ -207,6 +302,119 @@ const swaggerDocument = {
           content: { "application/json": { schema: { $ref: "#/components/schemas/NotificationRequest" } } },
         },
         responses: { 200: { description: "Notification settings updated" } },
+      },
+    },
+    "/api/properties": {
+      get: {
+        tags: ["Properties"],
+        summary: "List properties (supports pagination and search)",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 10 } },
+          { name: "search", in: "query", schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Properties fetched successfully" } },
+      },
+      post: {
+        tags: ["Properties"],
+        summary: "Create property listing with media uploads",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": { schema: { $ref: "#/components/schemas/PropertyCreateRequest" } },
+          },
+        },
+        responses: { 201: { description: "Property created successfully" } },
+      },
+    },
+    "/api/properties/{propertyId}": {
+      get: {
+        tags: ["Properties"],
+        summary: "Get property details including units and grouped unit lists",
+        parameters: [{ name: "propertyId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Property fetched successfully" } },
+      },
+      patch: {
+        tags: ["Properties"],
+        summary: "Update property metadata",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "propertyId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyUpdateRequest" } } },
+        },
+        responses: { 200: { description: "Property updated successfully" } },
+      },
+      delete: {
+        tags: ["Properties"],
+        summary: "Delete property and all associated units",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "propertyId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Property and associated units deleted successfully" } },
+      },
+    },
+    "/api/properties/{propertyId}/units": {
+      post: {
+        tags: ["Property Units"],
+        summary: "Create units for a property",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "propertyId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/PropertyUnitsCreateRequest" } },
+          },
+        },
+        responses: { 201: { description: "Property units created successfully" } },
+      },
+    },
+    "/api/properties/{propertyId}/units/{unitId}": {
+      patch: {
+        tags: ["Property Units"],
+        summary: "Update a property unit",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "propertyId", in: "path", required: true, schema: { type: "string" } },
+          { name: "unitId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/PropertyUnitUpdateRequest" } },
+          },
+        },
+        responses: { 200: { description: "Unit updated successfully" } },
+      },
+      delete: {
+        tags: ["Property Units"],
+        summary: "Delete a property unit",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "propertyId", in: "path", required: true, schema: { type: "string" } },
+          { name: "unitId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Unit deleted successfully" } },
+      },
+    },
+    "/api/properties/{propertyId}/units/{unitId}/status": {
+      patch: {
+        tags: ["Property Units"],
+        summary: "Update only unit status",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "propertyId", in: "path", required: true, schema: { type: "string" } },
+          { name: "unitId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/PropertyUnitStatusUpdateRequest" },
+            },
+          },
+        },
+        responses: { 200: { description: "Unit status updated successfully" } },
       },
     },
   },
