@@ -36,6 +36,10 @@ const startServer = async () => {
       console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
+    console.error("Server startup aborted: unable to connect to MongoDB.");
+    console.error(
+      "Check MONGODB_URI, DNS/network connectivity, and Atlas IP allowlist before retrying."
+    );
     process.exit(1);
   }
 };

@@ -32,16 +32,44 @@ const verifyOtpCode = async (email, purpose, code) => {
   return { valid: true, otpRecord };
 };
 
- const sendOTPEmail = async (email, otp) => {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const normalizeFromEmail = (fromEmail) => {
+  if (!fromEmail) {
+    return "Cambercribe <onboarding@resend.dev>";
+  }
+
+  // Normalize "Name<email@domain.com>" to "Name <email@domain.com>".
+  return fromEmail.replace(/([^\\s])</, "$1 <").trim();
+};
+
+const isTransientResendError = (error) => {
+  if (!error) {
+    return false;
+  }
+
+  const transientCodes = new Set(["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "ECONNREFUSED"]);
+  if (transientCodes.has(error.code)) {
+    return true;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  return message.includes("unable to fetch data") || message.includes("fetch");
+};
+
+const sendOTPEmail = async (email, otp) => {
   if (!process.env.RESEND_API_KEY) {
       throw new Error("Resend API key missing");
   }
 
   const resend = new Resend(process.env.RESEND_API_KEY);
+  const from = normalizeFromEmail(process.env.RESEND_FROM_EMAIL);
+  const maxAttempts = Number(process.env.RESEND_MAX_RETRIES || 3);
 
-  try {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
       const { data, error } = await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL || 'Cambercribe <onboarding@resend.dev>',
+          from,
           to: email,
           subject: 'Your Verification Code',
           html: `
@@ -65,14 +93,27 @@ const verifyOtpCode = async (email, purpose, code) => {
       });
 
       if (error) {
-          console.error('Error sending email via Resend:', error);
-          throw new Error('Failed to send OTP email');
+          const resendError = new Error(
+            `Resend API error: ${error.name || "unknown"} - ${error.message || "unknown error"}`
+          );
+          resendError.code = error.name;
+          throw resendError;
       }
 
       return data;
-  } catch (err) {
-      console.error('Unexpected error sending email:', err);
-      throw err;
+    } catch (err) {
+      const canRetry = attempt < maxAttempts && isTransientResendError(err);
+      console.error(
+        `Failed to send OTP email (attempt ${attempt}/${maxAttempts}):`,
+        err.message || err
+      );
+
+      if (!canRetry) {
+        throw new Error(`Failed to send OTP email: ${err.message || "unknown error"}`);
+      }
+
+      await sleep(800 * attempt);
+    }
   }
 };
 
