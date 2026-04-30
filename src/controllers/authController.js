@@ -35,6 +35,8 @@ const register = async (req, res) => {
 
     const otp = await createOrReplaceOtp(normalizedEmail, "verify_account");
 
+    await sendOTPEmail(normalizedEmail, otp);
+
     return res.status(200).json({
       message: "Registration initiated. Verify OTP to create account.",
       email: normalizedEmail,
@@ -59,6 +61,7 @@ const resendRegistrationOtp = async (req, res) => {
     }
 
     const otp = await createOrReplaceOtp(normalizedEmail, "verify_account");
+    await sendOTPEmail(normalizedEmail, otp);
     return res.status(200).json({
       message: "Registration OTP resent successfully",
       email: normalizedEmail,
@@ -168,6 +171,7 @@ const forgotPasswordRequestOtp = async (req, res) => {
     }
 
     const otp = await createOrReplaceOtp(normalizedEmail, "reset_password");
+    await sendOTPEmail(normalizedEmail, otp);
     return res.status(200).json({
       message: "Password reset OTP sent successfully",
       email: normalizedEmail,
@@ -192,6 +196,7 @@ const resendForgotPasswordOtp = async (req, res) => {
     }
 
     const otp = await createOrReplaceOtp(normalizedEmail, "reset_password");
+    await sendOTPEmail(normalizedEmail, otp);
     return res.status(200).json({
       message: "Password reset OTP resent successfully",
       email: normalizedEmail,
