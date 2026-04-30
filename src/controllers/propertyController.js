@@ -1,6 +1,6 @@
 const Property = require("../models/Property");
 const PropertyUnit = require("../models/PropertyUnit");
-const { cloudinary, isCloudinaryConfigured } = require("../config/cloudinary");
+const { cloudinary, isCloudinaryConfigured, configureCloudinary } = require("../config/cloudinary");
 const VALID_UNIT_STATUSES = new Set(["available", "reserved", "sold"]);
 
 const parseJsonArrayField = (value) => {
@@ -33,6 +33,7 @@ const toBoolean = (value) => {
 
 const uploadBufferToCloudinary = (buffer, folder, resourceType = "image") =>
   new Promise((resolve, reject) => {
+    configureCloudinary();
     const uploadStream = cloudinary.uploader.upload_stream(
       { folder, resource_type: resourceType },
       (error, result) => {
@@ -51,6 +52,21 @@ const uploadSingleFile = async (file, folder, resourceType = "image") => {
 const uploadMultipleFiles = async (files, folder, resourceType = "image") => {
   if (!files?.length) return [];
   return Promise.all(files.map((file) => uploadBufferToCloudinary(file.buffer, folder, resourceType)));
+};
+
+const filesFromAliases = (filesObject, aliases) => {
+  if (!filesObject) return [];
+  return aliases.flatMap((alias) => filesObject[alias] || []);
+};
+
+const parsePositiveNumber = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/,/g, "");
+    if (!normalized) return NaN;
+    return Number(normalized);
+  }
+  return NaN;
 };
 
 const refreshPropertyCounters = async (propertyId) => {
@@ -85,11 +101,16 @@ const createProperty = async (req, res) => {
     const amenities = parseJsonArrayField(req.body.amenities).filter(Boolean);
     const contacts = parseJsonObjectField(req.body.contacts);
 
+    const imageFiles = filesFromAliases(req.files, ["images", "images[]"]);
+    const documentFiles = filesFromAliases(req.files, ["documents", "documents[]"]);
+    const layoutFile = filesFromAliases(req.files, ["propertyLayoutImage", "propertyLayoutImage[]"])[0];
+    const videoFile = filesFromAliases(req.files, ["propertyVideoTour", "propertyVideoTour[]"])[0];
+
     const [images, documents, propertyLayoutImage, propertyVideoTour] = await Promise.all([
-      uploadMultipleFiles(req.files?.images || [], "cambercrib/properties/images", "image"),
-      uploadMultipleFiles(req.files?.documents || [], "cambercrib/properties/documents", "raw"),
-      uploadSingleFile(req.files?.propertyLayoutImage?.[0], "cambercrib/properties/layout", "image"),
-      uploadSingleFile(req.files?.propertyVideoTour?.[0], "cambercrib/properties/videos", "video"),
+      uploadMultipleFiles(imageFiles, "cambercrib/properties/images", "image"),
+      uploadMultipleFiles(documentFiles, "cambercrib/properties/documents", "raw"),
+      uploadSingleFile(layoutFile, "cambercrib/properties/layout", "image"),
+      uploadSingleFile(videoFile, "cambercrib/properties/videos", "video"),
     ]);
 
     const property = await Property.create({
@@ -144,16 +165,46 @@ const createPropertyUnits = async (req, res) => {
       return res.status(400).json({ message: "units must be a non-empty array" });
     }
 
-    const unitDocs = units.map((unit) => ({
-      propertyId,
-      name: unit.name,
-      price: Number(unit.price),
-      landmass: Number(unit.landmass),
-      status: VALID_UNIT_STATUSES.has(unit.status) ? unit.status : "available",
-      investButtonLabel: unit.investButtonLabel || "Invest",
-    }));
+    const invalidUnits = [];
+    const unitDocs = units.map((unit, index) => {
+      const price = parsePositiveNumber(unit.price);
+      const landmass = parsePositiveNumber(unit.landmass);
+      const name = String(unit.name || "").trim();
+
+      if (!name || !Number.isFinite(price) || !Number.isFinite(landmass)) {
+        invalidUnits.push({
+          index,
+          name: unit.name,
+          price: unit.price,
+          landmass: unit.landmass,
+          error: "name, price and landmass are required; price/landmass must be numeric",
+        });
+      }
+
+      return {
+        propertyId,
+        name,
+        price,
+        landmass,
+        status: VALID_UNIT_STATUSES.has(unit.status) ? unit.status : "available",
+        investButtonLabel: unit.investButtonLabel || "Invest",
+      };
+    });
+
+    if (invalidUnits.length) {
+      return res.status(400).json({
+        message: "Invalid unit payload",
+        errors: invalidUnits,
+      });
+    }
 
     const createdUnits = await PropertyUnit.insertMany(unitDocs, { ordered: false });
+    if (!createdUnits.length) {
+      return res.status(400).json({
+        message: "No units were created",
+        error: "Check payload values and duplicate unit names",
+      });
+    }
     await refreshPropertyCounters(propertyId);
 
     return res.status(201).json({

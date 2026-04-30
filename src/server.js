@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const swaggerUi = require("swagger-ui-express");
+const multer = require("multer");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -25,6 +26,17 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/properties", propertyRoutes);
+
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    return res.status(400).json({
+      message: "Invalid multipart/form-data request",
+      error: error.message,
+      hint: "Use only allowed file fields: images, documents, propertyVideoTour, propertyLayoutImage",
+    });
+  }
+  return next(error);
+});
 
 app.use((req, res) => {
   res.status(404).json({ message: "Route not found" });

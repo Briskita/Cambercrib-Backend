@@ -24,9 +24,13 @@ router.post(
   protect,
   upload.fields([
     { name: "images", maxCount: 15 },
+    { name: "images[]", maxCount: 15 },
     { name: "documents", maxCount: 10 },
+    { name: "documents[]", maxCount: 10 },
     { name: "propertyVideoTour", maxCount: 1 },
+    { name: "propertyVideoTour[]", maxCount: 1 },
     { name: "propertyLayoutImage", maxCount: 1 },
+    { name: "propertyLayoutImage[]", maxCount: 1 },
   ]),
   createProperty
 );
