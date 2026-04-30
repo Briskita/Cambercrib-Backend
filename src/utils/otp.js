@@ -43,6 +43,14 @@ const normalizeFromEmail = (fromEmail) => {
   return fromEmail.replace(/([^\\s])</, "$1 <").trim();
 };
 
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+
+const parseEmailFromDisplayFormat = (value) => {
+  const trimmed = String(value || "").trim();
+  const match = trimmed.match(/<([^>]+)>/);
+  return (match ? match[1] : trimmed).trim();
+};
+
 const isTransientResendError = (error) => {
   if (!error) {
     return false;
@@ -64,13 +72,23 @@ const sendOTPEmail = async (email, otp) => {
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const from = normalizeFromEmail(process.env.RESEND_FROM_EMAIL);
+  const to = String(email || "").trim().toLowerCase();
   const maxAttempts = Number(process.env.RESEND_MAX_RETRIES || 3);
+
+  const fromAddress = parseEmailFromDisplayFormat(from);
+  if (!isValidEmail(fromAddress)) {
+    throw new Error(`Invalid RESEND_FROM_EMAIL value: ${from}`);
+  }
+
+  if (!isValidEmail(to)) {
+    throw new Error(`Invalid recipient email: ${email}`);
+  }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const { data, error } = await resend.emails.send({
           from,
-          to: email,
+          to,
           subject: 'Your Verification Code',
           html: `
           <div style="font-family: 'Inter', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px; background-color: #f9fafb; border-radius: 12px;">
