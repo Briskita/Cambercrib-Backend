@@ -124,15 +124,65 @@ const swaggerDocument = {
           totalInvestment: { type: "number" },
         },
       },
+      PropertyUnitPeriodicPayment: {
+        type: "object",
+        properties: {
+          installmentAmount: { type: "number", description: "Amount per period for this interval" },
+        },
+      },
+      PropertyUnitFinancing: {
+        type: "object",
+        description:
+          "Installment terms for this plot. Required fields on the unit for each paymentInterval you allow (except outright).",
+        properties: {
+          initialDepositAmount: { type: "number" },
+          interestRatePercent: { type: "number", description: "Annual or agreed % — business-defined" },
+          termMonths: { type: "number", example: 24 },
+          installmentTotalPayable: {
+            type: "number",
+            description: "Total payable on installment path (optional reference total)",
+          },
+          periodicPayments: {
+            type: "object",
+            properties: {
+              daily: { $ref: "#/components/schemas/PropertyUnitPeriodicPayment" },
+              weekly: { $ref: "#/components/schemas/PropertyUnitPeriodicPayment" },
+              monthly: { $ref: "#/components/schemas/PropertyUnitPeriodicPayment" },
+            },
+          },
+        },
+      },
       PropertyUnitItemRequest: {
         type: "object",
-        required: ["name", "price", "landmass"],
+        required: ["name", "landmass"],
+        description:
+          "Send outrightAmount (preferred) or legacy price for the full outright amount. financing configures installment options.",
         properties: {
-          name: { type: "string" },
-          price: { type: "number" },
-          landmass: { type: "number" },
+          name: { type: "string", example: "Plot A-12" },
+          outrightAmount: { type: "number", example: 2031174 },
+          price: { type: "number", description: "Legacy alias for outrightAmount" },
+          landmass: { type: "number", description: "Plot size (e.g. sqm)", example: 450 },
+          financing: { $ref: "#/components/schemas/PropertyUnitFinancing" },
           status: { type: "string", enum: ["available", "reserved", "sold"] },
           investButtonLabel: { type: "string" },
+        },
+        example: {
+          name: "Plot A-12",
+          outrightAmount: 2031174,
+          landmass: 450,
+          financing: {
+            initialDepositAmount: 200000,
+            interestRatePercent: 12,
+            termMonths: 24,
+            installmentTotalPayable: 4149484,
+            periodicPayments: {
+              daily: { installmentAmount: 3204 },
+              weekly: { installmentAmount: 22248 },
+              monthly: { installmentAmount: 97457 },
+            },
+          },
+          status: "available",
+          investButtonLabel: "Invest now",
         },
       },
       PropertyUnitsCreateRequest: {
@@ -147,12 +197,52 @@ const swaggerDocument = {
       },
       PropertyUnitUpdateRequest: {
         type: "object",
+        description:
+          "Partial update. Same fields as create (outrightAmount or legacy price, landmass, financing). financing merges into the existing object by field; JSON body may set financing to null to clear installment config.",
         properties: {
           name: { type: "string" },
           price: { type: "number" },
+          outrightAmount: { type: "number" },
           landmass: { type: "number" },
+          financing: {
+            $ref: "#/components/schemas/PropertyUnitFinancing",
+            description: "Merged patch; send the key financing with JSON null to clear",
+          },
           status: { type: "string", enum: ["available", "reserved", "sold"] },
           investButtonLabel: { type: "string" },
+        },
+        example: {
+          outrightAmount: 2100000,
+          landmass: 460,
+          financing: {
+            initialDepositAmount: 220000,
+            interestRatePercent: 12,
+            termMonths: 24,
+            installmentTotalPayable: 4200000,
+            periodicPayments: {
+              monthly: { installmentAmount: 99000 },
+            },
+          },
+        },
+      },
+      InvestmentCreateRequest: {
+        type: "object",
+        required: ["propertyId", "propertyUnitId", "paymentInterval"],
+        properties: {
+          propertyId: { type: "string", example: "674a1b2c3d4e5f6789012345" },
+          propertyUnitId: { type: "string", example: "674a1b2c3d4e5f6789012346" },
+          paymentInterval: {
+            type: "string",
+            enum: ["outright", "daily", "weekly", "monthly"],
+            example: "monthly",
+          },
+          note: { type: "string", example: "Prefer reminders on Fridays." },
+        },
+        example: {
+          propertyId: "674a1b2c3d4e5f6789012345",
+          propertyUnitId: "674a1b2c3d4e5f6789012346",
+          paymentInterval: "monthly",
+          note: "Prefer reminders on Fridays.",
         },
       },
       PropertyUnitStatusUpdateRequest: {
@@ -372,7 +462,9 @@ const swaggerDocument = {
     "/api/properties/{propertyId}/units/{unitId}": {
       patch: {
         tags: ["Property Units"],
-        summary: "Update a property unit",
+        summary: "Update a property unit (pricing, plot size, financing, status)",
+        description:
+          "Supports outrightAmount/price (kept in sync), landmass, merged financing (initial deposit, interest %, term, periodic daily/weekly/monthly amounts), and other unit fields. Omit fields you do not change.",
         security: [{ bearerAuth: [] }],
         parameters: [
           { name: "propertyId", in: "path", required: true, schema: { type: "string" } },
@@ -415,6 +507,36 @@ const swaggerDocument = {
           },
         },
         responses: { 200: { description: "Unit status updated successfully" } },
+      },
+    },
+    "/api/investments": {
+      get: {
+        tags: ["Investments"],
+        summary: "List all investments (admin view)",
+        description: "Returns all confirmed/cancelled investments, newest first.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+        ],
+        responses: { 200: { description: "Investments fetched successfully" } },
+      },
+      post: {
+        tags: ["Investments"],
+        summary: "Confirm investment (amounts taken from property unit snapshot)",
+        description:
+          "Plot size and all monetary fields are resolved from the property unit at confirmation time and stored on the investment snapshot. Client sends only propertyId, propertyUnitId, paymentInterval, and optional note.",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/InvestmentCreateRequest" } },
+          },
+        },
+        responses: {
+          201: { description: "Investment confirmed; response includes snapshot from unit" },
+          400: { description: "Missing fields, wrong interval, or unit missing financing for that interval" },
+        },
       },
     },
   },

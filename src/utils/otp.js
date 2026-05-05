@@ -93,7 +93,7 @@ const sendOTPEmail = async (email, otp) => {
           html: `
           <div style="font-family: 'Inter', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px; background-color: #f9fafb; border-radius: 12px;">
               <div style="text-align: center; margin-bottom: 30px;">
-                  <h1 style="color: #111827; font-size: 24px; font-weight: 700; margin: 0;">Cambercribe</h1>
+                  <h1 style="color: #111827; font-size: 24px; font-weight: 700; margin: 0;">Cambercrib</h1>
               </div>
               <div style="background-color: #ffffff; padding: 32px; border-radius: 8px; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                   <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 16px;">Verify your identity</h2>

@@ -69,6 +69,59 @@ const parsePositiveNumber = (value) => {
   return NaN;
 };
 
+const parseOptionalPositiveNumber = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const n = parsePositiveNumber(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const parseFinancingInput = (raw, base = {}) => {
+  if (!raw) return { ...base };
+  let obj = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch (_) {
+      return { ...base };
+    }
+  }
+  if (typeof obj !== "object" || Array.isArray(obj)) return { ...base };
+
+  const out = {
+    initialDepositAmount:
+      obj.initialDepositAmount !== undefined
+        ? parseOptionalPositiveNumber(obj.initialDepositAmount)
+        : base.initialDepositAmount ?? null,
+    interestRatePercent:
+      obj.interestRatePercent !== undefined
+        ? parseOptionalPositiveNumber(obj.interestRatePercent)
+        : base.interestRatePercent ?? null,
+    termMonths:
+      obj.termMonths !== undefined ? parseOptionalPositiveNumber(obj.termMonths) : base.termMonths ?? null,
+    installmentTotalPayable:
+      obj.installmentTotalPayable !== undefined
+        ? parseOptionalPositiveNumber(obj.installmentTotalPayable)
+        : base.installmentTotalPayable ?? null,
+    periodicPayments: {
+      daily: { ...(base.periodicPayments?.daily || {}) },
+      weekly: { ...(base.periodicPayments?.weekly || {}) },
+      monthly: { ...(base.periodicPayments?.monthly || {}) },
+    },
+  };
+
+  const periodic = obj.periodicPayments;
+  if (periodic && typeof periodic === "object" && !Array.isArray(periodic)) {
+    for (const key of ["daily", "weekly", "monthly"]) {
+      if (periodic[key]?.installmentAmount !== undefined) {
+        const n = parseOptionalPositiveNumber(periodic[key].installmentAmount);
+        out.periodicPayments[key] = { installmentAmount: n };
+      }
+    }
+  }
+
+  return out;
+};
+
 const refreshPropertyCounters = async (propertyId) => {
   const [unitsCount, availablePlots, reservedPlots, soldPlots] = await Promise.all([
     PropertyUnit.countDocuments({ propertyId }),
@@ -167,25 +220,35 @@ const createPropertyUnits = async (req, res) => {
 
     const invalidUnits = [];
     const unitDocs = units.map((unit, index) => {
-      const price = parsePositiveNumber(unit.price);
+      const outrightSource =
+        unit.outrightAmount !== undefined && unit.outrightAmount !== null
+          ? unit.outrightAmount
+          : unit.price;
+      const outrightAmount = parsePositiveNumber(outrightSource);
       const landmass = parsePositiveNumber(unit.landmass);
       const name = String(unit.name || "").trim();
 
-      if (!name || !Number.isFinite(price) || !Number.isFinite(landmass)) {
+      if (!name || !Number.isFinite(outrightAmount) || !Number.isFinite(landmass)) {
         invalidUnits.push({
           index,
           name: unit.name,
           price: unit.price,
+          outrightAmount: unit.outrightAmount,
           landmass: unit.landmass,
-          error: "name, price and landmass are required; price/landmass must be numeric",
+          error:
+            "name, landmass and outright price are required (send outrightAmount or legacy price); values must be numeric",
         });
       }
+
+      const financing = parseFinancingInput(unit.financing, {});
 
       return {
         propertyId,
         name,
-        price,
+        price: outrightAmount,
+        outrightAmount,
         landmass,
+        financing,
         status: VALID_UNIT_STATUSES.has(unit.status) ? unit.status : "available",
         investButtonLabel: unit.investButtonLabel || "Invest",
       };
@@ -331,33 +394,88 @@ const updatePropertyUnitStatus = async (req, res) => {
   }
 };
 
+const clearedFinancing = () => ({
+  initialDepositAmount: null,
+  interestRatePercent: null,
+  termMonths: null,
+  installmentTotalPayable: null,
+  periodicPayments: {
+    daily: { installmentAmount: null },
+    weekly: { installmentAmount: null },
+    monthly: { installmentAmount: null },
+  },
+});
+
 const updatePropertyUnit = async (req, res) => {
   try {
     const { propertyId, unitId } = req.params;
+    const existing = await PropertyUnit.findOne({ _id: unitId, propertyId });
+    if (!existing) {
+      return res.status(404).json({ message: "Unit not found for this property" });
+    }
+
     const updates = {};
-    const allowedFields = ["name", "price", "landmass", "status", "investButtonLabel"];
 
-    allowedFields.forEach((field) => {
-      if (req.body[field] === undefined) return;
-      if (field === "price" || field === "landmass") {
-        updates[field] = Number(req.body[field]);
-        return;
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name).trim();
+      if (!name) {
+        return res.status(400).json({ message: "name cannot be empty" });
       }
-      if (field === "status") {
-        if (!VALID_UNIT_STATUSES.has(req.body.status)) {
-          return;
+      updates.name = name;
+    }
+
+    if (req.body.landmass !== undefined) {
+      const landmass = parsePositiveNumber(req.body.landmass);
+      if (!Number.isFinite(landmass)) {
+        return res.status(400).json({ message: "landmass must be a positive number" });
+      }
+      updates.landmass = landmass;
+    }
+
+    const priceProvided = req.body.price !== undefined;
+    const outrightProvided = req.body.outrightAmount !== undefined;
+    if (priceProvided || outrightProvided) {
+      if (priceProvided && outrightProvided) {
+        const p = parsePositiveNumber(req.body.price);
+        const o = parsePositiveNumber(req.body.outrightAmount);
+        if (Number.isFinite(p) && Number.isFinite(o) && p !== o) {
+          return res.status(400).json({
+            message: "price and outrightAmount disagree; send only one, or matching values",
+          });
         }
-        updates.status = req.body.status;
-        return;
       }
-      updates[field] = req.body[field];
-    });
+      const src = outrightProvided ? req.body.outrightAmount : req.body.price;
+      const n = parsePositiveNumber(src);
+      if (!Number.isFinite(n)) {
+        return res.status(400).json({ message: "price/outrightAmount must be a positive number" });
+      }
+      updates.price = n;
+      updates.outrightAmount = n;
+    }
 
-    if (req.body.status !== undefined && !VALID_UNIT_STATUSES.has(req.body.status)) {
-      return res.status(400).json({
-        message: "Invalid status",
-        error: "status must be one of: available, reserved, sold",
-      });
+    if (req.body.status !== undefined) {
+      if (!VALID_UNIT_STATUSES.has(req.body.status)) {
+        return res.status(400).json({
+          message: "Invalid status",
+          error: "status must be one of: available, reserved, sold",
+        });
+      }
+      updates.status = req.body.status;
+    }
+
+    if (req.body.investButtonLabel !== undefined) {
+      updates.investButtonLabel = String(req.body.investButtonLabel).trim() || "Invest";
+    }
+
+    if (req.body.financing === null) {
+      updates.financing = clearedFinancing();
+    } else if (req.body.financing !== undefined) {
+      const base = existing.financing?.toObject?.() || {};
+      updates.financing = parseFinancingInput(req.body.financing, base);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: "No valid fields to update" });
     }
 
     const unit = await PropertyUnit.findOneAndUpdate({ _id: unitId, propertyId }, updates, {
