@@ -14,13 +14,12 @@ const {
   markAllAdminNotificationsRead,
 } = require("../controllers/adminController");
 const { protectAdmin } = require("../middleware/authMiddleware");
-const { requireAdminRegistrationSecretIfConfigured } = require("../middleware/adminRegistrationMiddleware");
 
 const router = express.Router();
 
-router.post("/register", requireAdminRegistrationSecretIfConfigured, registerAdmin);
-router.post("/register/resend-otp", requireAdminRegistrationSecretIfConfigured, resendAdminRegistrationOtp);
-router.post("/register/verify-otp", requireAdminRegistrationSecretIfConfigured, verifyAdminRegistrationOtp);
+router.post("/register", registerAdmin);
+router.post("/register/resend-otp", resendAdminRegistrationOtp);
+router.post("/register/verify-otp", verifyAdminRegistrationOtp);
 
 router.get("/users", protectAdmin, listUsers);
 router.patch("/me/password", protectAdmin, changeAdminPassword);

@@ -257,7 +257,7 @@ const swaggerDocument = {
           registrationSecret: {
             type: "string",
             description:
-              "Required in body when env ADMIN_REGISTRATION_SECRET is set (same as header x-admin-registration-secret)",
+              "Required when server env ADMIN_REGISTRATION_SECRET is set; must match that value exactly (only on this register endpoint)",
           },
         },
       },
@@ -587,16 +587,7 @@ const swaggerDocument = {
         tags: ["Admins"],
         summary: "Initiate admin registration and send OTP",
         description:
-          "Public endpoint (no Bearer token). Email OTP verifies the new admin. If env ADMIN_REGISTRATION_SECRET is set, send it as header x-admin-registration-secret or body registrationSecret.",
-        parameters: [
-          {
-            name: "x-admin-registration-secret",
-            in: "header",
-            required: false,
-            schema: { type: "string" },
-            description: "Must match ADMIN_REGISTRATION_SECRET when that env var is set",
-          },
-        ],
+          "Public endpoint (no Bearer token). When ADMIN_REGISTRATION_SECRET is set on the server, include registrationSecret in the JSON body (same value). Resend and verify steps do not require registrationSecret.",
         requestBody: {
           required: true,
           content: { "application/json": { schema: { $ref: "#/components/schemas/AdminCreateRequest" } } },
@@ -608,16 +599,7 @@ const swaggerDocument = {
       post: {
         tags: ["Admins"],
         summary: "Resend admin registration OTP",
-        description:
-          "Public endpoint. Optional registration secret required when ADMIN_REGISTRATION_SECRET is set on server.",
-        parameters: [
-          {
-            name: "x-admin-registration-secret",
-            in: "header",
-            required: false,
-            schema: { type: "string" },
-          },
-        ],
+        description: "Public endpoint. Only email required; no registrationSecret.",
         requestBody: {
           required: true,
           content: {
@@ -625,10 +607,7 @@ const swaggerDocument = {
               schema: {
                 type: "object",
                 required: ["email"],
-                properties: {
-                  email: { type: "string", format: "email" },
-                  registrationSecret: { type: "string" },
-                },
+                properties: { email: { type: "string", format: "email" } },
               },
             },
           },
@@ -640,31 +619,10 @@ const swaggerDocument = {
       post: {
         tags: ["Admins"],
         summary: "Verify OTP and create admin account",
-        description:
-          "Public endpoint. Optional registration secret required when ADMIN_REGISTRATION_SECRET is set on server.",
-        parameters: [
-          {
-            name: "x-admin-registration-secret",
-            in: "header",
-            required: false,
-            schema: { type: "string" },
-          },
-        ],
+        description: "Public endpoint. Only email and otp required; no registrationSecret.",
         requestBody: {
           required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["email", "otp"],
-                properties: {
-                  email: { type: "string", format: "email" },
-                  otp: { type: "string" },
-                  registrationSecret: { type: "string" },
-                },
-              },
-            },
-          },
+          content: { "application/json": { schema: { $ref: "#/components/schemas/EmailOtpRequest" } } },
         },
         responses: { 201: { description: "Admin account verified and created" } },
       },

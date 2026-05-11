@@ -18,6 +18,16 @@ const toSafeAdmin = (adminDoc) => ({
 
 const registerAdmin = async (req, res) => {
   try {
+    const expectedSecret = process.env.ADMIN_REGISTRATION_SECRET;
+    if (expectedSecret) {
+      if (req.body.registrationSecret !== expectedSecret) {
+        return res.status(403).json({
+          message: "Invalid or missing registrationSecret",
+          hint: "Send registrationSecret in the JSON body matching ADMIN_REGISTRATION_SECRET (register step only)",
+        });
+      }
+    }
+
     const { firstName, lastName, phoneNumber, email, password } = req.body;
     if (!firstName || !lastName || !phoneNumber || !email || !password) {
       return res.status(400).json({ message: "firstName, lastName, phoneNumber, email and password are required" });
