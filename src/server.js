@@ -9,6 +9,7 @@ const userRoutes = require("./routes/userRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
 const investmentRoutes = require("./routes/investmentRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 const swaggerDocument = require("./docs/swagger");
 
 dotenv.config();
@@ -28,6 +29,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/investments", investmentRoutes);
+app.use("/api/admins", adminRoutes);
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {

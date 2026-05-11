@@ -245,6 +245,62 @@ const swaggerDocument = {
           note: "Prefer reminders on Fridays.",
         },
       },
+      AdminCreateRequest: {
+        type: "object",
+        required: ["firstName", "lastName", "phoneNumber", "email", "password"],
+        properties: {
+          firstName: { type: "string" },
+          lastName: { type: "string" },
+          phoneNumber: { type: "string" },
+          email: { type: "string", format: "email" },
+          password: { type: "string", format: "password" },
+        },
+      },
+      AdminUpdateRequest: {
+        type: "object",
+        properties: {
+          firstName: { type: "string" },
+          lastName: { type: "string" },
+          phoneNumber: { type: "string" },
+          email: { type: "string", format: "email" },
+          password: { type: "string", format: "password" },
+        },
+      },
+      AdminChangePasswordRequest: {
+        type: "object",
+        required: ["currentPassword", "newPassword"],
+        properties: {
+          currentPassword: { type: "string", format: "password" },
+          newPassword: { type: "string", format: "password" },
+        },
+      },
+      AdminNotificationItem: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          adminId: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["user_registered", "password_reset_requested", "investment_created"],
+          },
+          title: { type: "string" },
+          message: { type: "string" },
+          metadata: {
+            type: "object",
+            properties: {
+              userId: { type: "string", nullable: true },
+              propertyId: { type: "string", nullable: true },
+              propertyUnitId: { type: "string", nullable: true },
+              investmentId: { type: "string", nullable: true },
+              email: { type: "string", nullable: true },
+            },
+          },
+          isRead: { type: "boolean" },
+          readAt: { type: "string", format: "date-time", nullable: true },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
       PropertyUnitStatusUpdateRequest: {
         type: "object",
         required: ["status"],
@@ -310,7 +366,7 @@ const swaggerDocument = {
     "/api/auth/forgot-password/request-otp": {
       post: {
         tags: ["Auth"],
-        summary: "Request forgot-password OTP",
+        summary: "Request forgot-password OTP (user/admin account)",
         requestBody: {
           required: true,
           content: {
@@ -329,7 +385,7 @@ const swaggerDocument = {
     "/api/auth/forgot-password/resend-otp": {
       post: {
         tags: ["Auth"],
-        summary: "Resend forgot-password OTP",
+        summary: "Resend forgot-password OTP (user/admin account)",
         requestBody: {
           required: true,
           content: {
@@ -348,7 +404,7 @@ const swaggerDocument = {
     "/api/auth/forgot-password/reset": {
       post: {
         tags: ["Auth"],
-        summary: "Verify OTP and reset password",
+        summary: "Verify OTP and reset password (user/admin account)",
         requestBody: {
           required: true,
           content: {
@@ -507,6 +563,151 @@ const swaggerDocument = {
           },
         },
         responses: { 200: { description: "Unit status updated successfully" } },
+      },
+    },
+    "/api/admins": {
+      get: {
+        tags: ["Admins"],
+        summary: "List admins",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+        ],
+        responses: { 200: { description: "Admins fetched successfully" } },
+      },
+    },
+    "/api/admins/register": {
+      post: {
+        tags: ["Admins"],
+        summary: "Initiate admin registration and send OTP",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AdminCreateRequest" } } },
+        },
+        responses: { 200: { description: "Admin registration initiated" } },
+      },
+    },
+    "/api/admins/register/resend-otp": {
+      post: {
+        tags: ["Admins"],
+        summary: "Resend admin registration OTP",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["email"],
+                properties: { email: { type: "string", format: "email" } },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: "Admin registration OTP resent" } },
+      },
+    },
+    "/api/admins/register/verify-otp": {
+      post: {
+        tags: ["Admins"],
+        summary: "Verify OTP and create admin account",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/EmailOtpRequest" } } },
+        },
+        responses: { 201: { description: "Admin account verified and created" } },
+      },
+    },
+    "/api/admins/users": {
+      get: {
+        tags: ["Admins"],
+        summary: "List all users (admin utility)",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          { name: "search", in: "query", schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Users fetched successfully" } },
+      },
+    },
+    "/api/admins/notifications": {
+      get: {
+        tags: ["Admins"],
+        summary: "List notifications for logged-in admin",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "unreadOnly",
+            in: "query",
+            schema: { type: "boolean", default: false },
+            description: "Set true to fetch only unread notifications",
+          },
+        ],
+        responses: { 200: { description: "Admin notifications fetched successfully" } },
+      },
+    },
+    "/api/admins/notifications/read-all": {
+      patch: {
+        tags: ["Admins"],
+        summary: "Mark all notifications as read for logged-in admin",
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "All notifications marked as read" } },
+      },
+    },
+    "/api/admins/notifications/{notificationId}/read": {
+      patch: {
+        tags: ["Admins"],
+        summary: "Mark one notification as read",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "notificationId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Notification marked as read" } },
+      },
+    },
+    "/api/admins/me/password": {
+      patch: {
+        tags: ["Admins"],
+        summary: "Change current admin password",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/AdminChangePasswordRequest" } },
+          },
+        },
+        responses: { 200: { description: "Admin password changed successfully" } },
+      },
+    },
+    "/api/admins/{adminId}": {
+      get: {
+        tags: ["Admins"],
+        summary: "Get admin by id",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "adminId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Admin fetched successfully" } },
+      },
+      patch: {
+        tags: ["Admins"],
+        summary: "Update admin info",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "adminId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AdminUpdateRequest" } } },
+        },
+        responses: { 200: { description: "Admin updated successfully" } },
+      },
+      delete: {
+        tags: ["Admins"],
+        summary: "Delete admin",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "adminId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Admin deleted successfully" } },
       },
     },
     "/api/investments": {

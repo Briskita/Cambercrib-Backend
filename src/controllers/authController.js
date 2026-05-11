@@ -4,6 +4,7 @@ const Otp = require("../models/Otp");
 const PendingRegistration = require("../models/PendingRegistration");
 const { createOrReplaceOtp, verifyOtpCode, sendOTPEmail } = require("../utils/otp");
 const { generateToken } = require("../utils/token");
+const { notifyAllAdmins } = require("../utils/adminNotifications");
 
 const register = async (req, res) => {
   try {
@@ -100,6 +101,16 @@ const verifyRegistrationOtp = async (req, res) => {
       isVerified: true,
     });
 
+    await notifyAllAdmins({
+      type: "user_registered",
+      title: "New user registration",
+      message: `${user.firstName} ${user.lastName} just completed registration.`,
+      metadata: {
+        userId: user._id,
+        email: user.email,
+      },
+    });
+
     await Promise.all([
       Otp.deleteOne({ _id: verification.otpRecord._id }),
       PendingRegistration.deleteOne({ _id: pending._id }),
@@ -114,6 +125,7 @@ const verifyRegistrationOtp = async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
+        role: user.role,
       },
     });
   } catch (error) {
@@ -150,6 +162,7 @@ const login = async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
+        role: user.role,
       },
     });
   } catch (error) {
@@ -167,11 +180,20 @@ const forgotPasswordRequestOtp = async (req, res) => {
     const normalizedEmail = email.toLowerCase();
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(404).json({ message: "User with this email does not exist" });
+      return res.status(404).json({ message: "Account with this email does not exist" });
     }
 
     const otp = await createOrReplaceOtp(normalizedEmail, "reset_password");
     await sendOTPEmail(normalizedEmail, otp);
+    await notifyAllAdmins({
+      type: "password_reset_requested",
+      title: "Password reset requested",
+      message: `${user.firstName} ${user.lastName} requested password reset OTP.`,
+      metadata: {
+        userId: user._id,
+        email: user.email,
+      },
+    });
     return res.status(200).json({
       message: "Password reset OTP sent successfully",
       email: normalizedEmail,
@@ -192,7 +214,7 @@ const resendForgotPasswordOtp = async (req, res) => {
     const normalizedEmail = email.toLowerCase();
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(404).json({ message: "User with this email does not exist" });
+      return res.status(404).json({ message: "Account with this email does not exist" });
     }
 
     const otp = await createOrReplaceOtp(normalizedEmail, "reset_password");
@@ -222,7 +244,7 @@ const resetPasswordWithOtp = async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(404).json({ message: "User with this email does not exist" });
+      return res.status(404).json({ message: "Account with this email does not exist" });
     }
 
     user.password = await bcrypt.hash(newPassword, 10);

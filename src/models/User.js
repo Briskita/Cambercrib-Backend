@@ -14,6 +14,7 @@ const portfolioSchema = new mongoose.Schema(
     totalInvested: { type: Number, default: 0 },
     activeInvestment: { type: Number, default: 0 },
     remainingAmount: { type: Number, default: 0 },
+    investedProperties: [{ type: mongoose.Schema.Types.ObjectId, ref: "Property" }],
   },
   { _id: false }
 );
@@ -27,6 +28,7 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true },
     isVerified: { type: Boolean, default: false },
+    role: { type: String, enum: ["user", "admin"], default: "user", index: true },
     walletAmount: { type: Number, default: 0 },
     totalInvested: { type: Number, default: 0 },
     remainingAmount: { type: Number, default: 0 },

@@ -1,6 +1,8 @@
 const Property = require("../models/Property");
 const PropertyUnit = require("../models/PropertyUnit");
 const Investment = require("../models/Investment");
+const User = require("../models/User");
+const { notifyAllAdmins } = require("../utils/adminNotifications");
 
 const PAYMENT_INTERVALS = new Set(["outright", "daily", "weekly", "monthly"]);
 
@@ -10,6 +12,36 @@ const getOutrightAmount = (unit) =>
 const resolvePeriodicAmount = (unit, interval) => {
   const raw = unit.financing?.periodicPayments?.[interval]?.installmentAmount;
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+};
+
+const updateUserPortfolioMetrics = async ({ userId, propertyId, paymentInterval, outrightAmount, snapshot }) => {
+  const user = await User.findById(userId).select("portfolio totalInvested remainingAmount");
+  if (!user) return;
+
+  const currentProperties = Array.isArray(user.portfolio?.investedProperties)
+    ? user.portfolio.investedProperties.map((id) => String(id))
+    : [];
+  const propertySet = new Set(currentProperties);
+  propertySet.add(String(propertyId));
+
+  const investmentPaidNow = paymentInterval === "outright" ? outrightAmount : snapshot.initialDepositAmount || 0;
+  const outstandingAmount =
+    paymentInterval === "outright"
+      ? 0
+      : Math.max((snapshot.installmentTotalPayable || 0) - (snapshot.initialDepositAmount || 0), 0);
+
+  const nextPortfolio = {
+    totalProperties: propertySet.size,
+    totalInvested: (user.portfolio?.totalInvested || 0) + investmentPaidNow,
+    activeInvestment: (user.portfolio?.activeInvestment || 0) + 1,
+    remainingAmount: (user.portfolio?.remainingAmount || 0) + outstandingAmount,
+    investedProperties: [...propertySet],
+  };
+
+  user.portfolio = nextPortfolio;
+  user.totalInvested = nextPortfolio.totalInvested;
+  user.remainingAmount = nextPortfolio.remainingAmount;
+  await user.save();
 };
 
 const createInvestment = async (req, res) => {
@@ -107,6 +139,27 @@ const createInvestment = async (req, res) => {
       note: typeof note === "string" ? note.trim() : "",
       snapshot,
       status: "confirmed",
+    });
+
+    await updateUserPortfolioMetrics({
+      userId: req.user._id,
+      propertyId,
+      paymentInterval,
+      outrightAmount,
+      snapshot,
+    });
+
+    await notifyAllAdmins({
+      type: "investment_created",
+      title: "New investment confirmed",
+      message: `${req.user.firstName} ${req.user.lastName} invested in ${unit.name} (${property.title}).`,
+      metadata: {
+        userId: req.user._id,
+        propertyId,
+        propertyUnitId,
+        investmentId: investment._id,
+        email: req.user.email,
+      },
     });
 
     return res.status(201).json({
