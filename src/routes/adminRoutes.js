@@ -13,6 +13,11 @@ const {
   markAdminNotificationRead,
   markAllAdminNotificationsRead,
 } = require("../controllers/adminController");
+const {
+  listAllDepositsAdmin,
+  acceptDeposit,
+  declineDeposit,
+} = require("../controllers/depositController");
 const { protectAdmin } = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -26,6 +31,11 @@ router.patch("/me/password", protectAdmin, changeAdminPassword);
 router.get("/notifications", protectAdmin, listAdminNotifications);
 router.patch("/notifications/read-all", protectAdmin, markAllAdminNotificationsRead);
 router.patch("/notifications/:notificationId/read", protectAdmin, markAdminNotificationRead);
+
+router.get("/deposits", protectAdmin, listAllDepositsAdmin);
+router.patch("/deposits/:depositId/accept", protectAdmin, acceptDeposit);
+router.patch("/deposits/:depositId/decline", protectAdmin, declineDeposit);
+
 router.get("/", protectAdmin, listAdmins);
 router.route("/:adminId").get(protectAdmin, getAdminById).patch(protectAdmin, updateAdmin).delete(protectAdmin, deleteAdmin);
 

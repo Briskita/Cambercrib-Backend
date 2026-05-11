@@ -286,7 +286,7 @@ const swaggerDocument = {
           adminId: { type: "string" },
           type: {
             type: "string",
-            enum: ["user_registered", "password_reset_requested", "investment_created"],
+            enum: ["user_registered", "password_reset_requested", "investment_created", "deposit_requested"],
           },
           title: { type: "string" },
           message: { type: "string" },
@@ -297,6 +297,8 @@ const swaggerDocument = {
               propertyId: { type: "string", nullable: true },
               propertyUnitId: { type: "string", nullable: true },
               investmentId: { type: "string", nullable: true },
+              depositId: { type: "string", nullable: true },
+              amount: { type: "number", nullable: true },
               email: { type: "string", nullable: true },
             },
           },
@@ -311,6 +313,44 @@ const swaggerDocument = {
         required: ["status"],
         properties: {
           status: { type: "string", enum: ["available", "reserved", "sold"] },
+        },
+      },
+      UserInAppNotificationItem: {
+        type: "object",
+        properties: {
+          _id: { type: "string" },
+          userId: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["deposit_submitted", "deposit_accepted", "deposit_declined"],
+          },
+          title: { type: "string" },
+          message: { type: "string" },
+          metadata: {
+            type: "object",
+            properties: {
+              depositId: { type: "string", nullable: true },
+              amount: { type: "number", nullable: true },
+            },
+          },
+          isRead: { type: "boolean" },
+          readAt: { type: "string", format: "date-time", nullable: true },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      DepositDeclineRequest: {
+        type: "object",
+        properties: {
+          reason: { type: "string", description: "Optional reason shown to the user" },
+        },
+      },
+      ManualDepositCreateRequest: {
+        type: "object",
+        required: ["amount", "receipt"],
+        properties: {
+          amount: { type: "number", description: "Deposit amount (numeric)" },
+          receipt: { type: "string", format: "binary", description: "Screenshot or receipt document" },
         },
       },
     },
@@ -417,6 +457,71 @@ const swaggerDocument = {
           },
         },
         responses: { 200: { description: "Password reset" } },
+      },
+    },
+    "/api/users/notifications": {
+      get: {
+        tags: ["Users"],
+        summary: "List in-app notifications for the logged-in user",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "unreadOnly",
+            in: "query",
+            schema: { type: "boolean", default: false },
+          },
+        ],
+        responses: { 200: { description: "Notifications fetched successfully" } },
+      },
+    },
+    "/api/users/notifications/read-all": {
+      patch: {
+        tags: ["Users"],
+        summary: "Mark all in-app notifications as read",
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "All notifications marked as read" } },
+      },
+    },
+    "/api/users/notifications/{notificationId}/read": {
+      patch: {
+        tags: ["Users"],
+        summary: "Mark one in-app notification as read",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "notificationId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Notification marked as read" } },
+      },
+    },
+    "/api/deposits": {
+      get: {
+        tags: ["Deposits"],
+        summary: "List my manual deposit requests",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["pending", "accepted", "declined"] },
+          },
+        ],
+        responses: { 200: { description: "Deposits fetched successfully" } },
+      },
+      post: {
+        tags: ["Deposits"],
+        summary: "Submit manual deposit (receipt upload)",
+        description:
+          "Authenticated regular users only. Uploads receipt to Cloudinary and notifies admins. User id is taken from the token (do not trust a client-supplied user id).",
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": { schema: { $ref: "#/components/schemas/ManualDepositCreateRequest" } },
+          },
+        },
+        responses: { 201: { description: "Deposit request submitted" } },
       },
     },
     "/api/users/profile": {
@@ -687,6 +792,49 @@ const swaggerDocument = {
           },
         },
         responses: { 200: { description: "Admin password changed successfully" } },
+      },
+    },
+    "/api/admins/deposits": {
+      get: {
+        tags: ["Admins"],
+        summary: "List all manual deposit requests",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20 } },
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["pending", "accepted", "declined"] },
+            description: "Omit to return all statuses",
+          },
+        ],
+        responses: { 200: { description: "Deposit requests fetched successfully" } },
+      },
+    },
+    "/api/admins/deposits/{depositId}/accept": {
+      patch: {
+        tags: ["Admins"],
+        summary: "Accept deposit and credit user wallet",
+        description: "Marks deposit accepted, increments user walletAmount by deposit amount.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "depositId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Deposit accepted" } },
+      },
+    },
+    "/api/admins/deposits/{depositId}/decline": {
+      patch: {
+        tags: ["Admins"],
+        summary: "Decline deposit request",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "depositId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: false,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/DepositDeclineRequest" } },
+          },
+        },
+        responses: { 200: { description: "Deposit declined" } },
       },
     },
     "/api/admins/{adminId}": {

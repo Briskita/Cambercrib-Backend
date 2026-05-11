@@ -10,7 +10,7 @@ const adminNotificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["user_registered", "password_reset_requested", "investment_created"],
+      enum: ["user_registered", "password_reset_requested", "investment_created", "deposit_requested"],
       required: true,
       index: true,
     },
@@ -21,6 +21,8 @@ const adminNotificationSchema = new mongoose.Schema(
       propertyId: { type: mongoose.Schema.Types.ObjectId, ref: "Property", default: null },
       propertyUnitId: { type: mongoose.Schema.Types.ObjectId, ref: "PropertyUnit", default: null },
       investmentId: { type: mongoose.Schema.Types.ObjectId, ref: "Investment", default: null },
+      depositId: { type: mongoose.Schema.Types.ObjectId, ref: "DepositRequest", default: null },
+      amount: { type: Number, default: null },
       email: { type: String, default: null },
     },
     isRead: { type: Boolean, default: false, index: true },

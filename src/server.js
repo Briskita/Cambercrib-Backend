@@ -10,6 +10,7 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const propertyRoutes = require("./routes/propertyRoutes");
 const investmentRoutes = require("./routes/investmentRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const depositRoutes = require("./routes/depositRoutes");
 const swaggerDocument = require("./docs/swagger");
 
 dotenv.config();
@@ -30,13 +31,14 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/investments", investmentRoutes);
 app.use("/api/admins", adminRoutes);
+app.use("/api/deposits", depositRoutes);
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     return res.status(400).json({
       message: "Invalid multipart/form-data request",
       error: error.message,
-      hint: "Use only allowed file fields: images, documents, propertyVideoTour, propertyLayoutImage",
+      hint: "Use only allowed file fields: images, documents, propertyVideoTour, propertyLayoutImage, receipt",
     });
   }
   return next(error);
