@@ -878,9 +878,9 @@ const swaggerDocument = {
       },
       post: {
         tags: ["Investments"],
-        summary: "Confirm investment (amounts taken from property unit snapshot)",
+        summary: "Confirm investment (wallet-debited, unit-claimed)",
         description:
-          "Plot size and all monetary fields are resolved from the property unit at confirmation time and stored on the investment snapshot. Client sends only propertyId, propertyUnitId, paymentInterval, and optional note.",
+          "Resolves plot size and amounts from the property unit. Requires sufficient walletAmount (outright = outrightAmount, installment = initialDepositAmount). Atomically claims the unit (outright -> sold, installment -> reserved), debits the wallet, creates the investment snapshot, refreshes property plot counters and numberOfInvestors/totalInvestment, and updates the user's portfolio. Notifies all admins.",
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -889,9 +889,20 @@ const swaggerDocument = {
           },
         },
         responses: {
-          201: { description: "Investment confirmed; response includes snapshot from unit" },
-          400: { description: "Missing fields, wrong interval, or unit missing financing for that interval" },
+          201: { description: "Investment confirmed; response includes snapshot, debited amount, walletAmount and unitStatus" },
+          400: { description: "Missing fields, wrong interval, unit missing financing, or insufficient wallet balance" },
+          409: { description: "Unit was just taken by another investor; pick another plot" },
         },
+      },
+    },
+    "/api/admins/dashboard": {
+      get: {
+        tags: ["Admins"],
+        summary: "Admin dashboard summary",
+        description:
+          "Returns totalUsers, totalActiveUsers (users with at least one confirmed investment), totalProperties, totalUnits, and the 10 most recent investments (user, property, plan, amount, status). status is 'completed' for outright plans and 'ongoing' for installment plans.",
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Dashboard data fetched successfully" } },
       },
     },
   },

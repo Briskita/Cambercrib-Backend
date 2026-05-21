@@ -3,6 +3,7 @@ const PropertyUnit = require("../models/PropertyUnit");
 const Investment = require("../models/Investment");
 const User = require("../models/User");
 const { notifyAllAdmins } = require("../utils/adminNotifications");
+const { refreshPropertyCounters } = require("../utils/propertyCounters");
 
 const PAYMENT_INTERVALS = new Set(["outright", "daily", "weekly", "monthly"]);
 
@@ -14,7 +15,13 @@ const resolvePeriodicAmount = (unit, interval) => {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 };
 
-const updateUserPortfolioMetrics = async ({ userId, propertyId, paymentInterval, outrightAmount, snapshot }) => {
+const updateUserPortfolioMetrics = async ({
+  userId,
+  propertyId,
+  paymentInterval,
+  outrightAmount,
+  snapshot,
+}) => {
   const user = await User.findById(userId).select("portfolio totalInvested remainingAmount");
   if (!user) return;
 
@@ -24,7 +31,8 @@ const updateUserPortfolioMetrics = async ({ userId, propertyId, paymentInterval,
   const propertySet = new Set(currentProperties);
   propertySet.add(String(propertyId));
 
-  const investmentPaidNow = paymentInterval === "outright" ? outrightAmount : snapshot.initialDepositAmount || 0;
+  const investmentPaidNow =
+    paymentInterval === "outright" ? outrightAmount : snapshot.initialDepositAmount || 0;
   const outstandingAmount =
     paymentInterval === "outright"
       ? 0
@@ -44,6 +52,18 @@ const updateUserPortfolioMetrics = async ({ userId, propertyId, paymentInterval,
   await user.save();
 };
 
+const refreshPropertyInvestorMetrics = async (propertyId, amountToAdd) => {
+  const uniqueInvestors = await Investment.distinct("userId", { propertyId });
+  await Property.findByIdAndUpdate(
+    propertyId,
+    {
+      $set: { numberOfInvestors: uniqueInvestors.length },
+      $inc: { totalInvestment: amountToAdd || 0 },
+    },
+    { new: false }
+  );
+};
+
 const createInvestment = async (req, res) => {
   try {
     const { propertyId, propertyUnitId, paymentInterval, note } = req.body;
@@ -53,7 +73,6 @@ const createInvestment = async (req, res) => {
         message: "propertyId, propertyUnitId and paymentInterval are required",
       });
     }
-
     if (!PAYMENT_INTERVALS.has(paymentInterval)) {
       return res.status(400).json({
         message: "paymentInterval must be one of: outright, daily, weekly, monthly",
@@ -64,14 +83,8 @@ const createInvestment = async (req, res) => {
       Property.findById(propertyId),
       PropertyUnit.findOne({ _id: propertyUnitId, propertyId }),
     ]);
-
-    if (!property) {
-      return res.status(404).json({ message: "Property not found" });
-    }
-    if (!unit) {
-      return res.status(404).json({ message: "Property unit not found for this property" });
-    }
-
+    if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!unit) return res.status(404).json({ message: "Property unit not found for this property" });
     if (unit.status !== "available") {
       return res.status(400).json({
         message: "This plot is not available for investment",
@@ -93,18 +106,18 @@ const createInvestment = async (req, res) => {
     let interestRatePercent = null;
     let termMonths = null;
     let installmentTotalPayable = null;
+    let amountToDebit = 0;
+    let nextUnitStatus = "available";
 
     if (paymentInterval === "outright") {
-      periodicInstallmentAmount = null;
-      initialDepositAmount = null;
+      amountToDebit = Number(outrightAmount) || 0;
+      nextUnitStatus = "sold";
     } else {
       interestRatePercent = financing.interestRatePercent ?? null;
       termMonths = financing.termMonths ?? null;
       installmentTotalPayable = financing.installmentTotalPayable ?? null;
       initialDepositAmount =
-        typeof financing.initialDepositAmount === "number"
-          ? financing.initialDepositAmount
-          : null;
+        typeof financing.initialDepositAmount === "number" ? financing.initialDepositAmount : null;
       periodicInstallmentAmount = resolvePeriodicAmount(unit, paymentInterval);
 
       if (initialDepositAmount == null) {
@@ -117,6 +130,47 @@ const createInvestment = async (req, res) => {
           message: `This unit has no ${paymentInterval} installmentAmount configured (financing.periodicPayments.${paymentInterval})`,
         });
       }
+
+      amountToDebit = Number(initialDepositAmount) || 0;
+      nextUnitStatus = "reserved";
+    }
+
+    if (!Number.isFinite(amountToDebit) || amountToDebit <= 0) {
+      return res.status(400).json({ message: "Unable to determine payable amount for this plan" });
+    }
+
+    const currentWallet = Number(req.user.walletAmount || 0);
+    if (currentWallet < amountToDebit) {
+      return res.status(400).json({
+        message: "Insufficient wallet balance for this investment",
+        requiredAmount: amountToDebit,
+        walletAmount: currentWallet,
+        shortfall: amountToDebit - currentWallet,
+        hint: "Fund your wallet via the manual deposit flow and wait for admin approval",
+      });
+    }
+
+    const claimedUnit = await PropertyUnit.findOneAndUpdate(
+      { _id: propertyUnitId, propertyId, status: "available" },
+      { status: nextUnitStatus },
+      { new: true }
+    );
+    if (!claimedUnit) {
+      return res.status(409).json({
+        message: "This plot was just taken by another investor. Please pick another plot.",
+      });
+    }
+
+    const debitedUser = await User.findOneAndUpdate(
+      { _id: req.user._id, walletAmount: { $gte: amountToDebit } },
+      { $inc: { walletAmount: -amountToDebit } },
+      { new: true }
+    );
+    if (!debitedUser) {
+      await PropertyUnit.findByIdAndUpdate(propertyUnitId, { status: "available" });
+      return res.status(400).json({
+        message: "Wallet balance changed; investment cancelled. Try again.",
+      });
     }
 
     const snapshot = {
@@ -131,23 +185,36 @@ const createInvestment = async (req, res) => {
       installmentTotalPayable,
     };
 
-    const investment = await Investment.create({
-      userId: req.user._id,
-      propertyId,
-      propertyUnitId,
-      paymentInterval,
-      note: typeof note === "string" ? note.trim() : "",
-      snapshot,
-      status: "confirmed",
-    });
+    let investment;
+    try {
+      investment = await Investment.create({
+        userId: req.user._id,
+        propertyId,
+        propertyUnitId,
+        paymentInterval,
+        note: typeof note === "string" ? note.trim() : "",
+        snapshot,
+        status: "confirmed",
+      });
+    } catch (createError) {
+      await Promise.all([
+        PropertyUnit.findByIdAndUpdate(propertyUnitId, { status: "available" }),
+        User.findByIdAndUpdate(req.user._id, { $inc: { walletAmount: amountToDebit } }),
+      ]);
+      throw createError;
+    }
 
-    await updateUserPortfolioMetrics({
-      userId: req.user._id,
-      propertyId,
-      paymentInterval,
-      outrightAmount,
-      snapshot,
-    });
+    await Promise.all([
+      refreshPropertyCounters(propertyId),
+      refreshPropertyInvestorMetrics(propertyId, amountToDebit),
+      updateUserPortfolioMetrics({
+        userId: req.user._id,
+        propertyId,
+        paymentInterval,
+        outrightAmount,
+        snapshot,
+      }),
+    ]);
 
     await notifyAllAdmins({
       type: "investment_created",
@@ -158,13 +225,19 @@ const createInvestment = async (req, res) => {
         propertyId,
         propertyUnitId,
         investmentId: investment._id,
+        amount: amountToDebit,
         email: req.user.email,
       },
     });
 
     return res.status(201).json({
       message: "Investment confirmed",
-      data: investment,
+      data: {
+        investment,
+        debited: amountToDebit,
+        walletAmount: debitedUser.walletAmount,
+        unitStatus: nextUnitStatus,
+      },
     });
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
