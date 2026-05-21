@@ -459,6 +459,16 @@ const swaggerDocument = {
         responses: { 200: { description: "Password reset" } },
       },
     },
+    "/api/users/portfolio": {
+      get: {
+        tags: ["Users"],
+        summary: "Get my portfolio (summary + properties/units invested in)",
+        description:
+          "Returns wallet balance, portfolio summary, and the full list of the user's confirmed investments with property, unit, plan, amount paid, outstanding, and status (completed for outright, ongoing for installments).",
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Portfolio fetched successfully" } },
+      },
+    },
     "/api/users/notifications": {
       get: {
         tags: ["Users"],
