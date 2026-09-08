@@ -122,6 +122,16 @@ const swaggerDocument = {
           numberOfInvestors: { type: "number" },
           completionRate: { type: "number" },
           totalInvestment: { type: "number" },
+          images: {
+            type: "array",
+            items: { type: "string", format: "binary" },
+          },
+          documents: {
+            type: "array",
+            items: { type: "string", format: "binary" },
+          },
+          propertyVideoTour: { type: "string", format: "binary" },
+          propertyLayoutImage: { type: "string", format: "binary" },
         },
       },
       PropertyUnitPeriodicPayment: {
@@ -603,12 +613,29 @@ const swaggerDocument = {
       },
       patch: {
         tags: ["Properties"],
-        summary: "Update property metadata",
+        summary: "Update property metadata and media",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "propertyId", in: "path", required: true, schema: { type: "string" } }],
         requestBody: {
           required: true,
-          content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyUpdateRequest" } } },
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/PropertyUpdateRequest" } },
+            "multipart/form-data": { schema: { $ref: "#/components/schemas/PropertyUpdateRequest" } },
+          },
+        },
+        responses: { 200: { description: "Property updated successfully" } },
+      },
+      put: {
+        tags: ["Properties"],
+        summary: "Update property metadata and media",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "propertyId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/PropertyUpdateRequest" } },
+            "multipart/form-data": { schema: { $ref: "#/components/schemas/PropertyUpdateRequest" } },
+          },
         },
         responses: { 200: { description: "Property updated successfully" } },
       },

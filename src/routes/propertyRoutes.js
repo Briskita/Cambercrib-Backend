@@ -13,27 +13,25 @@ const {
 const { protect } = require("../middleware/authMiddleware");
 const { upload } = require("../middleware/uploadMiddleware");
 
+const propertyUploadMiddleware = upload.fields([
+  { name: "images", maxCount: 15 },
+  { name: "images[]", maxCount: 15 },
+  { name: "documents", maxCount: 10 },
+  { name: "documents[]", maxCount: 10 },
+  { name: "propertyVideoTour", maxCount: 1 },
+  { name: "propertyVideoTour[]", maxCount: 1 },
+  { name: "propertyLayoutImage", maxCount: 1 },
+  { name: "propertyLayoutImage[]", maxCount: 1 },
+]);
+
 const router = express.Router();
 
 router.get("/", listProperties);
 router.get("/:propertyId", getPropertyById);
-router.patch("/:propertyId", protect, updateProperty);
+router.post("/", protect, propertyUploadMiddleware, createProperty);
+router.patch("/:propertyId", protect, propertyUploadMiddleware, updateProperty);
+router.put("/:propertyId", protect, propertyUploadMiddleware, updateProperty);
 router.delete("/:propertyId", protect, deleteProperty);
-router.post(
-  "/",
-  protect,
-  upload.fields([
-    { name: "images", maxCount: 15 },
-    { name: "images[]", maxCount: 15 },
-    { name: "documents", maxCount: 10 },
-    { name: "documents[]", maxCount: 10 },
-    { name: "propertyVideoTour", maxCount: 1 },
-    { name: "propertyVideoTour[]", maxCount: 1 },
-    { name: "propertyLayoutImage", maxCount: 1 },
-    { name: "propertyLayoutImage[]", maxCount: 1 },
-  ]),
-  createProperty
-);
 router.post("/:propertyId/units", protect, createPropertyUnits);
 router.patch("/:propertyId/units/:unitId", protect, updatePropertyUnit);
 router.patch("/:propertyId/units/:unitId/status", protect, updatePropertyUnitStatus);

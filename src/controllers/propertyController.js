@@ -126,38 +126,52 @@ const { refreshPropertyCounters } = require("../utils/propertyCounters");
 
 const createProperty = async (req, res) => {
   try {
-    if (!isCloudinaryConfigured()) {
-      return res.status(500).json({
-        message: "Cloudinary is not configured",
-        error: "Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET",
-      });
-    }
-
-    const { title, description, location } = req.body;
+    const body = req.body || {};
+    const { title, description, location } = body;
     if (!title || !description || !location) {
       return res.status(400).json({ message: "title, description and location are required" });
     }
-
-    const amenities = parseJsonArrayField(req.body.amenities).filter(Boolean);
-    const contacts = parseJsonObjectField(req.body.contacts);
 
     const imageFiles = filesFromAliases(req.files, ["images", "images[]"]);
     const documentFiles = filesFromAliases(req.files, ["documents", "documents[]"]);
     const layoutFile = filesFromAliases(req.files, ["propertyLayoutImage", "propertyLayoutImage[]"])[0];
     const videoFile = filesFromAliases(req.files, ["propertyVideoTour", "propertyVideoTour[]"])[0];
 
-    const [images, documents, propertyLayoutImage, propertyVideoTour] = await Promise.all([
+    const hasFiles =
+      imageFiles.length > 0 ||
+      documentFiles.length > 0 ||
+      Boolean(layoutFile) ||
+      Boolean(videoFile);
+
+    if (hasFiles && !isCloudinaryConfigured()) {
+      return res.status(500).json({
+        message: "Cloudinary is not configured",
+        error: "Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET",
+      });
+    }
+
+    const [uploadedImages, uploadedDocuments, uploadedLayout, uploadedVideo] = await Promise.all([
       uploadMultipleFiles(imageFiles, "cambercrib/properties/images", "image"),
       uploadMultipleFiles(documentFiles, "cambercrib/properties/documents", "raw"),
       uploadSingleFile(layoutFile, "cambercrib/properties/layout", "image"),
       uploadSingleFile(videoFile, "cambercrib/properties/videos", "video"),
     ]);
 
+    const bodyImages = parseJsonArrayField(body.images).filter(Boolean);
+    const bodyDocuments = parseJsonArrayField(body.documents).filter(Boolean);
+    const amenities = parseJsonArrayField(body.amenities).filter(Boolean);
+    const contacts = parseJsonObjectField(body.contacts);
+
+    const images = [...bodyImages, ...uploadedImages];
+    const documents = [...bodyDocuments, ...uploadedDocuments];
+    const propertyLayoutImage = uploadedLayout || body.propertyLayoutImage || null;
+    const propertyVideoTour = uploadedVideo || body.propertyVideoTour || null;
+
     const property = await Property.create({
       title,
       description,
       location,
-      initialDepositAllowed: toBoolean(req.body.initialDepositAllowed),
+      initialDepositAllowed: toBoolean(body.initialDepositAllowed),
       amenities,
       contacts: {
         phone: contacts.phone || null,
@@ -173,9 +187,9 @@ const createProperty = async (req, res) => {
       soldPlots: 0,
       reservedPlots: 0,
       availablePlots: 0,
-      numberOfInvestors: Number(req.body.numberOfInvestors || 0),
-      completionRate: Number(req.body.completionRate || 0),
-      totalInvestment: Number(req.body.totalInvestment || 0),
+      numberOfInvestors: Number(body.numberOfInvestors || 0),
+      completionRate: Number(body.completionRate || 0),
+      totalInvestment: Number(body.totalInvestment || 0),
       createdBy: req.user._id,
     });
 
@@ -276,6 +290,12 @@ const createPropertyUnits = async (req, res) => {
 const updateProperty = async (req, res) => {
   try {
     const { propertyId } = req.params;
+    const property = await Property.findById(propertyId);
+    if (!property) {
+      return res.status(404).json({ message: "Property not found" });
+    }
+
+    const body = req.body || {};
     const updates = {};
     const allowedFields = [
       "title",
@@ -288,41 +308,103 @@ const updateProperty = async (req, res) => {
     ];
 
     allowedFields.forEach((field) => {
-      if (req.body[field] !== undefined) {
+      if (body[field] !== undefined) {
         if (field === "initialDepositAllowed") {
-          updates[field] = toBoolean(req.body[field]);
+          updates[field] = toBoolean(body[field]);
         } else if (["numberOfInvestors", "completionRate", "totalInvestment"].includes(field)) {
-          updates[field] = Number(req.body[field]);
+          updates[field] = Number(body[field]);
         } else {
-          updates[field] = req.body[field];
+          updates[field] = body[field];
         }
       }
     });
 
-    if (req.body.amenities !== undefined) {
-      updates.amenities = parseJsonArrayField(req.body.amenities).filter(Boolean);
+    if (body.amenities !== undefined) {
+      updates.amenities = parseJsonArrayField(body.amenities).filter(Boolean);
     }
-    if (req.body.contacts !== undefined) {
-      const contacts = parseJsonObjectField(req.body.contacts);
+    if (body.contacts !== undefined) {
+      const contacts = parseJsonObjectField(body.contacts);
+      const existingContacts = property.contacts || {};
       updates.contacts = {
-        phone: contacts.phone || null,
-        whatsapp: contacts.whatsapp || null,
-        email: contacts.email || null,
+        phone: contacts.phone !== undefined ? (contacts.phone || null) : (existingContacts.phone || null),
+        whatsapp: contacts.whatsapp !== undefined ? (contacts.whatsapp || null) : (existingContacts.whatsapp || null),
+        email: contacts.email !== undefined ? (contacts.email || null) : (existingContacts.email || null),
       };
     }
 
-    const property = await Property.findByIdAndUpdate(propertyId, updates, {
+    const imageFiles = filesFromAliases(req.files, ["images", "images[]"]);
+    const documentFiles = filesFromAliases(req.files, ["documents", "documents[]"]);
+    const layoutFile = filesFromAliases(req.files, ["propertyLayoutImage", "propertyLayoutImage[]"])[0];
+    const videoFile = filesFromAliases(req.files, ["propertyVideoTour", "propertyVideoTour[]"])[0];
+
+    const hasFiles =
+      imageFiles.length > 0 ||
+      documentFiles.length > 0 ||
+      Boolean(layoutFile) ||
+      Boolean(videoFile);
+
+    if (hasFiles && !isCloudinaryConfigured()) {
+      return res.status(500).json({
+        message: "Cloudinary is not configured",
+        error: "Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET",
+      });
+    }
+
+    const [uploadedImages, uploadedDocuments, uploadedLayout, uploadedVideo] = await Promise.all([
+      uploadMultipleFiles(imageFiles, "cambercrib/properties/images", "image"),
+      uploadMultipleFiles(documentFiles, "cambercrib/properties/documents", "raw"),
+      uploadSingleFile(layoutFile, "cambercrib/properties/layout", "image"),
+      uploadSingleFile(videoFile, "cambercrib/properties/videos", "video"),
+    ]);
+
+    const mediaUpdates = {
+      images: [...(property.media?.images || [])],
+      documents: [...(property.media?.documents || [])],
+      propertyVideoTour: property.media?.propertyVideoTour || null,
+      propertyLayoutImage: property.media?.propertyLayoutImage || null,
+    };
+    let mediaChanged = false;
+
+    if (uploadedLayout) {
+      mediaUpdates.propertyLayoutImage = uploadedLayout;
+      mediaChanged = true;
+    } else if (body.propertyLayoutImage !== undefined) {
+      mediaUpdates.propertyLayoutImage = body.propertyLayoutImage || null;
+      mediaChanged = true;
+    }
+
+    if (uploadedVideo) {
+      mediaUpdates.propertyVideoTour = uploadedVideo;
+      mediaChanged = true;
+    } else if (body.propertyVideoTour !== undefined) {
+      mediaUpdates.propertyVideoTour = body.propertyVideoTour || null;
+      mediaChanged = true;
+    }
+
+    if (uploadedImages.length > 0 || body.images !== undefined) {
+      const baseImages = body.images !== undefined ? parseJsonArrayField(body.images).filter(Boolean) : mediaUpdates.images;
+      mediaUpdates.images = [...baseImages, ...uploadedImages];
+      mediaChanged = true;
+    }
+
+    if (uploadedDocuments.length > 0 || body.documents !== undefined) {
+      const baseDocs = body.documents !== undefined ? parseJsonArrayField(body.documents).filter(Boolean) : mediaUpdates.documents;
+      mediaUpdates.documents = [...baseDocs, ...uploadedDocuments];
+      mediaChanged = true;
+    }
+
+    if (mediaChanged) {
+      updates.media = mediaUpdates;
+    }
+
+    const updatedProperty = await Property.findByIdAndUpdate(propertyId, updates, {
       new: true,
       runValidators: true,
     });
 
-    if (!property) {
-      return res.status(404).json({ message: "Property not found" });
-    }
-
     return res.status(200).json({
       message: "Property updated successfully",
-      data: property,
+      data: updatedProperty,
     });
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
